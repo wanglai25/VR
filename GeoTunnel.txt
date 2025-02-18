@@ -1,0 +1,153 @@
+import bpy
+import math
+import csv
+import itertools
+
+# 清除现有的所有对象
+bpy.ops.object.select_all(action='DESELECT')
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete()
+
+csv_file_path = 'C:/Users/admin/Desktop/虚拟现实/VR/投稿/VR环境构建/新建文件夹/filtered_strata_model.csv'
+start_line = 0
+end_line = 1500
+
+# Create a new collection for cubes
+cube_collection = bpy.data.collections.new("Cubes")
+bpy.context.scene.collection.children.link(cube_collection)
+
+# Create a base cube
+bpy.ops.mesh.primitive_cube_add(size=1)
+base_cube = bpy.context.object
+base_cube.scale = (10, 4, 1)
+base_cube.name = "BaseCube"
+
+# Define strata type to color mapping
+color_map = {
+    1: (0.0, 1.0, 0.0, 1.0),
+    2: (0.0, 0.0, 1.0, 1.0),
+    3: (1.0, 1.0, 0.0, 1.0),
+    4: (1.0, 0.0, 1.0, 1.0),
+    5: (0.0, 1.0, 1.0, 1.0),
+    6: (0.5, 0.5, 0.5, 1.0),
+}
+
+# Create materials for each strata type
+materials = {}
+for strata_type, color in color_map.items():
+    mat = bpy.data.materials.new(name=f"Material_{strata_type}")
+    mat.diffuse_color = color
+    materials[strata_type] = mat
+
+# 读取CSV文件并为每个位置创建一个立方体实例
+cube_instances = []
+counter = 0
+with open(csv_file_path, newline='', encoding='utf-8') as csvfile:
+    reader = csv.DictReader(csvfile)
+    for row in itertools.islice(reader, start_line, None):
+        x, y, z = int(row['X']), int(row['Y']), int(row['Z'])
+        strata_type = int(row['StrataType'])
+        # 创建实例
+        cube_instance = base_cube.copy()
+        cube_instance.location = (x, y, z)
+        # 分配材质
+        cube_instance.data = base_cube.data.copy()
+        cube_instance.data.materials.clear()
+        cube_instance.data.materials.append(materials[strata_type])
+        cube_collection.objects.link(cube_instance)
+        cube_instances.append(cube_instance)
+
+        counter += 1
+        if counter % 100 == 0:
+            print(f"Created {counter} cubes.")
+# 删除基础立方体
+bpy.data.objects.remove(base_cube, do_unlink=True)
+
+bpy.ops.object.select_all(action='DESELECT')  # 先取消选择所有物体
+for obj in bpy.context.scene.objects:
+    if obj.location.z >= -50 and obj.location.z <= -20:
+        # if (obj.location.y >= 4 and obj.location.y <= 12) or (obj.location.y >= 28 and obj.location.y <= 36):
+        if (obj.location.y >= 0 and obj.location.y <= 40):
+            obj.select_set(True)
+# 设置活动对象为选择的第一个物体（如果有选择的物体）
+if bpy.context.selected_objects:
+    bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
+bpy.ops.object.join()
+merged_cube = bpy.context.object
+print("Cube merged.")
+
+def create_curve(points, curve_name):
+    # 创建贝塞尔曲线
+    curve_data = bpy.data.curves.new(name=curve_name, type='CURVE')
+    curve_data.dimensions = '3D'
+    spline = curve_data.splines.new('BEZIER')
+    spline.bezier_points.add(len(points) - 1)
+    for i, point in enumerate(points):
+        spline.bezier_points[i].co = point
+        spline.bezier_points[i].handle_left_type = 'AUTO'
+        spline.bezier_points[i].handle_right_type = 'AUTO'
+    # 添加曲线到场景
+    curve_obj = bpy.data.objects.new(curve_name, curve_data)
+    bpy.context.collection.objects.link(curve_obj)
+    return curve_obj
+
+def set_curve_bevel(curve_obj, depth):
+    # 设置曲线的倒角、深度属性和封盖
+    curve_obj.data.bevel_mode = 'ROUND'
+    curve_obj.data.bevel_depth = depth
+    curve_obj.data.use_fill_caps = True
+
+# 创建隧道路径
+tunnel_path1 = create_curve([(-10, 8, -35), (310, 8, -41), (1110, 8, -41)], 'TunnelPath1')
+tunnel_path2 = create_curve([(-10, 32, -34), (325, 32, -40), (1110, 32, -43)], 'TunnelPath2')
+
+# 设置路径曲线的倒角和深度属性
+set_curve_bevel(tunnel_path1, 3)
+set_curve_bevel(tunnel_path2, 3)
+
+# 将路径曲线转换为网格
+bpy.ops.object.select_all(action='DESELECT')
+tunnel_path1.select_set(True)
+bpy.context.view_layer.objects.active = tunnel_path1
+tunnel_mesh1 = bpy.context.selected_objects[0]
+bpy.ops.object.convert(target='MESH')
+bpy.ops.object.select_all(action='DESELECT')
+tunnel_path2.select_set(True)
+bpy.context.view_layer.objects.active = tunnel_path2
+tunnel_mesh2 = bpy.context.selected_objects[0]
+bpy.ops.object.convert(target='MESH')
+
+# 创建集合并将隧道线放入集合
+collection = bpy.data.collections.new("TunnelCollection")
+bpy.context.scene.collection.children.link(collection)
+collection.objects.link(tunnel_mesh1)
+collection.objects.link(tunnel_mesh2)
+# 从场景中删除原来的隧道线对象
+bpy.context.collection.objects.unlink(tunnel_mesh1)
+bpy.context.collection.objects.unlink(tunnel_mesh2)
+
+# 将两个隧道对象合并
+bpy.context.view_layer.objects.active = tunnel_mesh1
+bpy.ops.object.select_all(action='DESELECT')
+tunnel_mesh1.select_set(True)
+tunnel_mesh2.select_set(True)
+bpy.ops.object.join()
+# 重命名合并后的对象
+bpy.context.active_object.name = 'MergedTunnel'
+print("Tunnel merged.")
+
+# 添加布尔修饰器并设置操作类型为COLLECTION
+bpy.context.view_layer.objects.active = merged_cube
+bpy.ops.object.modifier_add(type='BOOLEAN')
+bpy.context.object.modifiers["Boolean"].solver = 'EXACT'
+bpy.context.object.modifiers["Boolean"].use_self = True
+bpy.context.object.modifiers["Boolean"].object = bpy.data.objects["MergedTunnel"]
+print("Cylinder boolean.")
+
+bpy.ops.object.select_all(action='DESELECT')
+merged_cube.select_set(True)
+bpy.context.view_layer.objects.active = merged_cube
+bpy.ops.object.mode_set(mode='EDIT')
+bpy.ops.mesh.separate(type='MATERIAL')
+bpy.ops.object.mode_set(mode='OBJECT')
+print("Object separated.")                     
