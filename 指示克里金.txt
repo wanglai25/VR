@@ -1,0 +1,176 @@
+import numpy as np
+from sklearn.interpolation import LinearNDInterpolator
+import pandas as pd
+
+class GeologicalModeling:
+    def __init__(self):
+        self.borehole_data = None
+        self.interpolator = None
+        self.grid_x = None
+        self.grid_y = None
+        self.grid_z = None
+        
+    def load_borehole_data(self, filepath):
+        """
+        加载钻孔数据
+        输入格式: x,y,z,stratum_code,lithology
+        """
+        self.borehole_data = pd.read_csv(filepath)
+        
+    def create_3d_grid(self, x_range, y_range, z_range, resolution=1.0):
+        """
+        创建三维网格用于插值
+        参数:
+            x_range: (min_x, max_x)
+            y_range: (min_y, max_y) 
+            z_range: (min_z, max_z)
+            resolution: 网格分辨率
+        """
+        x = np.arange(x_range[0], x_range[1], resolution)
+        y = np.arange(y_range[0], y_range[1], resolution)
+        z = np.arange(z_range[0], z_range[1], resolution)
+        
+        self.grid_x, self.grid_y, self.grid_z = np.meshgrid(x, y, z)
+        
+    def interpolate_stratum(self):
+        """
+        使用线性插值方法构建地层模型
+        返回:
+            grid_values: 插值后的地层编码数组
+        """
+        # 准备插值点
+        points = self.borehole_data[['x', 'y', 'z']].values
+        values = self.borehole_data['stratum_code'].values
+        
+        # 创建插值器
+        self.interpolator = LinearNDInterpolator(points, values)
+        
+        # 执行插值
+        grid_points = np.column_stack((
+            self.grid_x.ravel(),
+            self.grid_y.ravel(),
+            self.grid_z.ravel()
+        ))
+        grid_values = self.interpolator(grid_points)
+        
+        # 重塑为三维数组
+        return grid_values.reshape(self.grid_x.shape)
+    
+    def apply_geological_constraints(self, grid_values):
+        """
+        应用地质约束条件
+        1. 保持地层的连续性
+        2. 处理断层
+        3. 应用地质规则(如某些地层不能相邻等)
+        """
+        # 使用高斯滤波平滑地层边界
+        from scipy.ndimage import gaussian_filter
+        smoothed_values = gaussian_filter(grid_values, sigma=1.0)
+        
+        # 应用断层约束
+        fault_zones = self.identify_fault_zones()
+        if fault_zones:
+            smoothed_values = self.apply_fault_constraints(smoothed_values, fault_zones)
+            
+        return smoothed_values
+    
+    def identify_fault_zones(self):
+        """
+        识别断层带
+        基于地层的突变性和钻孔数据中的断层标记
+        """
+        fault_zones = []
+        # 实现断层识别逻辑
+        return fault_zones
+    
+    def apply_fault_constraints(self, grid_values, fault_zones):
+        """
+        在断层处应用约束条件
+        """
+        # 实现断层约束逻辑
+        return grid_values
+    
+    def generate_3d_model(self):
+        """
+        生成最终的三维地质模型
+        """
+        # 1. 插值获取初始地层分布
+        initial_grid = self.interpolate_stratum()
+        
+        # 2. 应用地质约束
+        constrained_grid = self.apply_geological_constraints(initial_grid)
+        
+        # 3. 生成最终模型
+        geological_model = {
+            'grid_values': constrained_grid,
+            'grid_coordinates': {
+                'x': self.grid_x,
+                'y': self.grid_y,
+                'z': self.grid_z
+            },
+            'metadata': {
+                'resolution': 1.0,
+                'crs': 'EPSG:4326'  # 坐标系信息
+            }
+        }
+        
+        return geological_model
+
+    def export_to_vtk(self, model, output_path):
+        """
+        将模型导出为VTK格式供可视化使用
+        """
+        import vtk
+        
+        # 创建VTK结构网格
+        grid = vtk.vtkStructuredGrid()
+        
+        # 设置网格维度
+        grid.SetDimensions(model['grid_values'].shape)
+        
+        # 设置点坐标
+        points = vtk.vtkPoints()
+        for i in range(len(model['grid_coordinates']['x'].flat)):
+            points.InsertNextPoint(
+                model['grid_coordinates']['x'].flat[i],
+                model['grid_coordinates']['y'].flat[i],
+                model['grid_coordinates']['z'].flat[i]
+            )
+        grid.SetPoints(points)
+        
+        # 添加地层数据
+        stratum = vtk.vtkFloatArray()
+        stratum.SetName("Stratum")
+        for value in model['grid_values'].flat:
+            stratum.InsertNextValue(value)
+        grid.GetPointData().AddArray(stratum)
+        
+        # 保存文件
+        writer = vtk.vtkXMLStructuredGridWriter()
+        writer.SetFileName(output_path)
+        writer.SetInputData(grid)
+        writer.Write()
+
+def main():
+    # 实例化建模器
+    modeler = GeologicalModeling()
+    
+    # 加载钻孔数据
+    modeler.load_borehole_data("borehole_data.csv")
+    
+    # 创建三维网格
+    modeler.create_3d_grid(
+        x_range=(0, 1000),
+        y_range=(0, 1000),
+        z_range=(-100, 100),
+        resolution=5.0
+    )
+    
+    # 生成三维地质模型
+    geological_model = modeler.generate_3d_model()
+    
+    # 导出模型
+    modeler.export_to_vtk(geological_model, "geological_model.vtu")
+
+if __name__ == "__main__":
+    main()
